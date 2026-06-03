@@ -1,0 +1,16 @@
+# Secretos y entorno
+.env
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Estado de ejecución / datos (no van al repo: privacidad + el manual del RAG es del fabricante)
+data/*.json
+salida/

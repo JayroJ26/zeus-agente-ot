@@ -1,0 +1,29 @@
+# Dependencias de Zeus · agente generador de órdenes de trabajo (OT)
+#
+# Crear el entorno e instalar todo:
+#   py -m venv .venv
+#   .venv\Scripts\python -m pip install -r requirements.txt
+
+# --- (OPCIONAL) Cerebro por API de Claude, para modo AUTÓNOMO ---
+# Por ahora el cerebro de Zeus es la sesión de Claude Code (sin API key).
+# Queda instalada por si más adelante se quiere autonomía.
+anthropic==0.105.2
+
+# --- Canal CORREO de entrada: leer el reporte del operador por IMAP ---
+imapclient==3.1.0
+pyzmail36==1.0.5
+
+# --- Canal TELEGRAM (secundario) ---
+python-telegram-bot==22.7
+
+# --- Documento PDF de la OT (la salida que el bot envía por Telegram) ---
+fpdf2==2.8.7
+
+# --- Configuración: leer credenciales desde .env (secrets fuera del código) ---
+python-dotenv==1.2.2
+
+# Nota: el ENVÍO de correo (SMTP) usa 'smtplib', de la librería estándar de Python.
+
+# --- RAG (base de conocimiento ligera, por palabras clave; sin embeddings) ---
+pypdf==6.12.2       # extraer el texto de los PDFs de los manuales
+# (No se usa faiss ni embeddings: el RAG busca por palabras clave y Zeus sintetiza.)
