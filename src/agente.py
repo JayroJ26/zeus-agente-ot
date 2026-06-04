@@ -20,6 +20,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # ya estamos en src/
 
 import almacen
+import correo
 import mensajes
 import rag
 import reporte
@@ -32,6 +33,27 @@ def _pdf(ot):
     """Genera (o regenera) el PDF de la OT en salida/{folio}.pdf y devuelve la ruta."""
     os.makedirs(_SALIDA, exist_ok=True)
     return reporte.generar_pdf(ot, os.path.join(_SALIDA, f"{ot.folio}.pdf"))
+
+
+def _enviar_correo(ot, ruta_pdf, estado):
+    """Envía por correo el PDF de la OT (solo al crear y al finalizar). Es
+    RESILIENTE: si el correo no está configurado o falla, NO rompe el flujo
+    (Telegram sigue funcionando); solo deja un aviso en consola. Devuelve el
+    destinatario si se envió, o None."""
+    if not correo.envio_configurado():
+        return None
+    try:
+        destino = correo.enviar_ot(
+            ruta_pdf,
+            asunto=f"Orden de trabajo {ot.folio} - {ot.cliente} ({estado})",
+            cuerpo_html=reporte.generar_html(ot),
+            cuerpo_texto=f"Adjunto la orden de trabajo {ot.folio} ({estado}) en PDF.",
+        )
+        print(f"[correo] OT {ot.folio} ({estado}) enviada a {destino}")
+        return destino
+    except Exception as error:
+        print(f"[correo] No se pudo enviar la OT {ot.folio} por correo: {error}")
+        return None
 
 
 def contexto_para(ot, k=5):
@@ -49,6 +71,7 @@ def crear_y_enviar(ot, chat_id):
     almacen.guardar(ot)
     ruta = _pdf(ot)
     tb.enviar_documento(chat_id, ruta, caption=f"OT {ot.folio} — {ot.cliente} (ABIERTA)")
+    _enviar_correo(ot, ruta, "ABIERTA")
     solicitud = mensajes.solicitar_datos(ot)
     if solicitud:
         tb.enviar_mensaje(chat_id, solicitud)
@@ -96,6 +119,7 @@ def finalizar_y_enviar(chat_id, observaciones=""):
         f"✅ Orden <b>{ot.folio}</b> marcada como <b>FINALIZADA</b>. Te envío la versión final.",
     )
     tb.enviar_documento(chat_id, ruta, caption=f"OT {ot.folio} — {ot.cliente} (FINALIZADA)")
+    _enviar_correo(ot, ruta, "FINALIZADA")
     return ot
 
 
