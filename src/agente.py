@@ -7,7 +7,9 @@ operador DUEÑO dice que terminó.
 
   crear_y_enviar(ot, chat_id)        -> registra la OT (ABIERTA) y envía PDF + solicitud + aviso.
   aplicar_actualizacion(chat_id, t)  -> aplica un dato o el resultado de una prueba a la OT abierta.
-  finalizar_y_enviar(chat_id, obs)   -> finaliza, regenera el PDF y lo envía. None si no hay OT abierta.
+  finalizar_y_enviar(chat_id, obs)   -> finaliza, regenera el PDF y lo envía. None si no hay OT
+                                        abierta; False si faltan datos obligatorios (NO la cierra y
+                                        se los pide al operador).
 
 El "cerebro" (razonar un reporte nuevo y construir la OT con la clase correcta)
 lo hace Zeus en la sesión; estas funciones mueven el estado de forma determinista.
@@ -107,10 +109,31 @@ def aplicar_actualizacion(chat_id, texto):
 
 def finalizar_y_enviar(chat_id, observaciones=""):
     """Finaliza la OT ABIERTA del operador: estado FINALIZADA, regenera el PDF
-    una última vez y se lo envía. Devuelve la OT, o None si no hay OT abierta."""
+    una última vez y se lo envía.
+
+    Devuelve:
+        - la OT (FINALIZADA) si se cerró con éxito;
+        - None si no hay OT abierta;
+        - False si hay OT pero le faltan DATOS OBLIGATORIOS -> NO se cierra; se le
+          piden al operador (no se puede finalizar una OT incompleta)."""
     ot = almacen.ot_abierta_de(chat_id)
     if ot is None:
         return None
+
+    # No cerrar una OT a la que le faltan datos obligatorios: pedírselos primero.
+    faltan = mensajes.campos_faltantes(ot)
+    if faltan:
+        etiquetas = ", ".join(etiq for _c, etiq in faltan)
+        tb.enviar_mensaje(
+            chat_id,
+            f"⚠️ Aún no puedo cerrar la orden <b>{ot.folio}</b>: faltan datos "
+            f"obligatorios (<b>{etiquetas}</b>). Agrégalos y luego dime que terminaste.",
+        )
+        solicitud = mensajes.solicitar_datos(ot)
+        if solicitud:
+            tb.enviar_mensaje(chat_id, solicitud)
+        return False
+
     ot.finalizar(observaciones)
     almacen.guardar(ot)                       # ahora queda FINALIZADA en disco
     ruta = _pdf(ot)                           # regenera el PDF final
@@ -147,9 +170,15 @@ def procesar_mensaje(chat_id, texto):
     Devuelve (accion, info). 'nuevo_reporte' = Zeus debe razonar un reporte nuevo.
     """
     # 1) ¿Dice que terminó? -> finalizar y enviar el PDF final.
+    #    Si faltan datos obligatorios, finalizar_y_enviar NO cierra (devuelve False)
+    #    y ya le pidió los datos al operador.
     if mensajes.es_finalizar(texto):
         ot = finalizar_y_enviar(chat_id)
-        return ("finalizada", ot) if ot is not None else ("sin_ot_abierta", None)
+        if ot is None:
+            return ("sin_ot_abierta", None)
+        if ot is False:
+            return ("faltan_datos", None)
+        return ("finalizada", ot)
 
     # 2) ¿Pide su OT? -> reenviar el PDF.
     if mensajes.es_solicitud_ot(texto):
