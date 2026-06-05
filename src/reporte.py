@@ -134,6 +134,91 @@ def _firmas():
             + "</tr></table>")
 
 
+def _fila_resumen(etiqueta, valor):
+    """Renglón del cuadro-resumen del correo (etiqueta a la izquierda, valor a la derecha)."""
+    val = html.escape(str(valor)) if valor not in (None, "", []) else "—"
+    return (f"<tr>"
+            f"<td style='padding:9px 14px;width:38%;background:#f5f8fb;font-weight:bold;"
+            f"color:#33475b;border:1px solid #e3e8ee;font-size:13px;vertical-align:top;'>{etiqueta}</td>"
+            f"<td style='padding:9px 14px;color:#1a2b3c;border:1px solid #e3e8ee;"
+            f"font-size:13px;'>{val}</td>"
+            f"</tr>")
+
+
+def cuerpo_correo(ot, estado=None):
+    """Cuerpo HTML del correo: un CUADRO PROFESIONAL con la información principal
+    de la OT (no el documento completo — ese va adjunto en PDF).
+
+    Pensado para clientes de correo: todo con estilos inline y tablas.
+    'estado' permite forzar la etiqueta (ABIERTA / FINALIZADA); si es None usa el
+    estado actual de la OT.
+    """
+    etiqueta_estado = (estado or ot.estado.value).lower()
+    fecha = ot.fecha_creacion.strftime("%d/%m/%Y %H:%M")
+    badge_prioridad = _badge(f"Prioridad {ot.prioridad.value}",
+                             _COLOR_PRIORIDAD.get(ot.prioridad.value, "#7f8c8d"))
+    badge_estado = _badge(etiqueta_estado, _COLOR_ESTADO_OT.get(etiqueta_estado, "#34495e"))
+
+    cliente = html.escape(ot.cliente) if ot.cliente else "(por confirmar)"
+    marca_modelo = f"{ot.equipo.marca} {ot.equipo.modelo}".strip()
+
+    # Mensaje de apertura según el estado.
+    if etiqueta_estado == "finalizada":
+        intro = (f"La orden de trabajo <b>{ot.folio}</b> ha sido <b>FINALIZADA</b>. "
+                 f"A continuación el resumen; el detalle completo (checklist de pruebas y "
+                 f"firmas) se incluye en el PDF adjunto.")
+    else:
+        intro = (f"Se ha generado la orden de trabajo <b>{ot.folio}</b>. A continuación el "
+                 f"resumen con la información principal; el documento completo (checklist y "
+                 f"firmas) se incluye en el PDF adjunto.")
+
+    # Cuadro-resumen con los datos principales.
+    cuadro = "<table style='width:100%;border-collapse:collapse;margin-top:6px;'>"
+    cuadro += _fila_resumen("Folio", ot.folio)
+    cuadro += _fila_resumen("Cliente", cliente)
+    cuadro += _fila_resumen("Planta", ot.planta)
+    cuadro += _fila_resumen("Ubicación", ot.ubicacion)
+    cuadro += _fila_resumen("Equipo", ot.equipo.nombre)
+    cuadro += _fila_resumen("Tag / identificador", ot.equipo.tag)
+    if marca_modelo:
+        cuadro += _fila_resumen("Marca / modelo", marca_modelo)
+    cuadro += _fila_resumen("Área", ot.equipo.area)
+    cuadro += _fila_resumen("Tipo de mantenimiento", ot.tipo.capitalize())
+    cuadro += _fila_resumen("Descripción de la falla", ot.descripcion_falla)
+    cuadro += _fila_resumen("Fecha de emisión", fecha)
+    cuadro += "</table>"
+
+    return f"""\
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:24px;background:#eef1f5;font-family:Arial,Helvetica,sans-serif;color:#1a2b3c;">
+  <table style="max-width:640px;margin:0 auto;width:100%;border-collapse:collapse;
+                background:#ffffff;box-shadow:0 2px 14px rgba(0,0,0,.12);">
+    <tr><td style="background:#1f3a5f;color:#ffffff;padding:20px 28px;">
+      <div style="font-size:18px;font-weight:bold;letter-spacing:.3px;">{EMPRESA['nombre']}</div>
+      <div style="font-size:12px;color:#c8d6e5;margin-top:2px;">{EMPRESA['eslogan']}</div>
+    </td></tr>
+    <tr><td style="padding:12px 28px;background:#eef3f8;border-bottom:1px solid #d6e0ea;text-align:right;">
+      {badge_prioridad}&nbsp;&nbsp;{badge_estado}
+    </td></tr>
+    <tr><td style="padding:22px 28px;">
+      <div style="font-size:16px;font-weight:bold;color:#1f3a5f;margin-bottom:10px;">
+        Orden de trabajo — {cliente}</div>
+      <div style="font-size:13.5px;line-height:1.55;color:#33475b;">{intro}</div>
+      {cuadro}
+      <div style="margin-top:18px;padding:12px 14px;background:#eef3f8;border-left:4px solid #1f3a5f;
+                  font-size:12.5px;color:#33475b;">
+        📎 <b>Adjunto:</b> {ot.folio}.pdf — documento completo de la orden de trabajo.
+      </div>
+    </td></tr>
+    <tr><td style="background:#1f3a5f;color:#c8d6e5;padding:14px 28px;font-size:11.5px;text-align:center;">
+      {EMPRESA['contacto']}<br>
+      <span style="color:#90a4bd;">Generado automáticamente por Zeus ⚡ · Agente de mantenimiento industrial</span>
+    </td></tr>
+  </table>
+</body></html>"""
+
+
 def generar_html(ot):
     """Devuelve el documento HTML completo y profesional de la orden de trabajo."""
     fecha = ot.fecha_creacion.strftime("%d/%m/%Y %H:%M")
