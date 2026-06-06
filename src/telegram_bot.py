@@ -31,6 +31,7 @@ from telegram.ext import (
 
 import almacen
 import mensajes
+import rag
 
 # Carga el .env desde la raíz del proyecto (funciona desde cualquier carpeta)
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
@@ -123,7 +124,7 @@ async def _on_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "⚡ Soy <b>Zeus</b>, tu asistente de mantenimiento industrial.\n\n"
         "Envíame el <b>reporte de la falla</b> (qué equipo y qué ocurre) y generaré "
         "la orden de trabajo.\n\n"
-        "Comandos: /ayuda · /pendientes · /id",
+        "Comandos: /ayuda · /consulta · /pruebas · /pendientes · /id",
         parse_mode="HTML",
     )
 
@@ -138,6 +139,7 @@ async def _on_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/ayuda — esta ayuda\n"
         "/pruebas — registrar el checklist paso a paso (resultado, estado y observación de cada prueba)\n"
         "/cancelar — salir del llenado de pruebas\n"
+        "/consulta — preguntar a la base técnica (manuales WEG y ANSI/NETA)\n"
         "/pendientes — reportes en cola por procesar\n"
         "/id — muestra tu chat_id (para darte de alta como operador)",
         parse_mode="HTML",
@@ -170,6 +172,66 @@ async def _on_pendientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📋 <b>{len(pendientes)} reporte(s) en cola:</b>\n{lineas}",
         parse_mode="HTML",
     )
+
+
+# =================== CONSULTA al RAG (/consulta) ==========================
+# Mapa de palabras clave -> tipo_equipo, para filtrar la búsqueda si el operador
+# menciona el tipo en su consulta (mejora la relevancia; opcional).
+_TIPOS_RAG = {
+    "motor": "Motor",
+    "generador": "Generador eléctrico",
+    "transformador": "Transformador",
+}
+
+
+def _tipo_en_consulta(texto):
+    """Detecta si la consulta menciona un tipo de equipo para filtrar el RAG."""
+    t = _sin_acentos(texto)
+    for clave, tipo in _TIPOS_RAG.items():
+        if clave in t:
+            return tipo
+    return None
+
+
+async def _on_consulta(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Consulta libre a la base de conocimiento (RAG): manuales WEG y ANSI/NETA.
+    Uso: /consulta <pregunta>   p. ej.  /consulta tolerancia TTR transformador"""
+    if not _autorizado(update.effective_chat.id):
+        await update.message.reply_text("🚫 No estás autorizado para usar este comando.")
+        return
+    pregunta = " ".join(context.args).strip()
+    if not pregunta:
+        await update.message.reply_text(
+            "📚 <b>Consulta a la base técnica</b> (manuales WEG y ANSI/NETA).\n"
+            "Uso: <code>/consulta &lt;tu pregunta&gt;</code>\n"
+            "<i>Ej.: /consulta tolerancia TTR transformador</i>",
+            parse_mode="HTML",
+        )
+        return
+
+    tipo = _tipo_en_consulta(pregunta)
+    resultados = rag.buscar(pregunta, k=3, tipo_equipo=tipo)
+    if not resultados:
+        await update.message.reply_text(
+            "🔍 No encontré nada relevante en la base técnica para esa consulta. "
+            "Prueba con otras palabras clave (equipo, prueba, norma)."
+        )
+        return
+
+    bloques = []
+    for f in resultados:
+        texto = " ".join(f["texto"].split())
+        if len(texto) > 700:
+            texto = texto[:700].rsplit(" ", 1)[0] + "…"
+        bloques.append(
+            f"📄 <b>{html.escape(f['fuente'])}</b>\n{html.escape(texto)}"
+        )
+    filtro = f" (tipo: {tipo})" if tipo else ""
+    respuesta = (
+        f"📚 <b>Base técnica</b> — {len(resultados)} fragmento(s) para "
+        f"«{html.escape(pregunta)}»{filtro}:\n\n" + "\n\n".join(bloques)
+    )
+    await update.message.reply_text(respuesta, parse_mode="HTML")
 
 
 # ============ Llenado GUIADO del checklist (/pruebas, /cancelar) ============
@@ -312,6 +374,7 @@ def escuchar():
     app.add_handler(CommandHandler("ayuda", _on_ayuda))
     app.add_handler(CommandHandler("help", _on_ayuda))      # alias en inglés
     app.add_handler(CommandHandler("pendientes", _on_pendientes))
+    app.add_handler(CommandHandler("consulta", _on_consulta))
     app.add_handler(CommandHandler("id", _on_id))
     app.add_handler(CommandHandler("pruebas", _on_pruebas))
     app.add_handler(CommandHandler("cancelar", _on_cancelar))
