@@ -14,3 +14,7 @@ Thumbs.db
 # Estado de ejecución / datos (no van al repo: privacidad + el manual del RAG es del fabricante)
 data/*.json
 salida/
+
+# Jupyter (basura de la app: checkpoints y notebooks sin título)
+.ipynb_checkpoints/
+Untitled*.ipynb

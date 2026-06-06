@@ -87,16 +87,20 @@ def envio_configurado():
     return bool(EMAIL and APP_PASSWORD)
 
 
-def enviar_ot(ruta_pdf, asunto, cuerpo_html="", cuerpo_texto="", destinatario=None):
+def enviar_ot(ruta_pdf, asunto, cuerpo_html="", cuerpo_texto="", destinatario=None,
+              imagenes_inline=None):
     """Envía la OT (PDF adjunto) por SMTP al responsable de mantenimiento.
 
     Parámetros:
-        ruta_pdf:     ruta al PDF de la OT a adjuntar.
-        asunto:       asunto del correo.
-        cuerpo_html:  cuerpo en HTML (p. ej. reporte.generar_html(ot)); opcional.
-        cuerpo_texto: cuerpo en texto plano (respaldo si el cliente no ve HTML).
-        destinatario: correo de destino; por defecto OT_DESTINATARIO o, si está
-                      vacío, la propia cuenta de Zeus.
+        ruta_pdf:        ruta al PDF de la OT a adjuntar.
+        asunto:          asunto del correo.
+        cuerpo_html:     cuerpo en HTML (p. ej. reporte.cuerpo_correo(ot)); opcional.
+        cuerpo_texto:    cuerpo en texto plano (respaldo si el cliente no ve HTML).
+        destinatario:    correo de destino; por defecto OT_DESTINATARIO o, si está
+                         vacío, la propia cuenta de Zeus.
+        imagenes_inline: lista [(cid, ruta_png), ...] de imágenes a EMBEBER en el
+                         HTML (logo, foto del equipo). En el HTML se referencian
+                         con src="cid:<cid>". Se ignoran las rutas que no existan.
 
     Devuelve el correo de destino. Lanza RuntimeError si faltan credenciales o
     el PDF no existe.
@@ -118,6 +122,16 @@ def enviar_ot(ruta_pdf, asunto, cuerpo_html="", cuerpo_texto="", destinatario=No
     msg.set_content(cuerpo_texto or "Adjunto la orden de trabajo en PDF.")
     if cuerpo_html:
         msg.add_alternative(cuerpo_html, subtype="html")
+        # Imágenes embebidas (logo, foto del equipo): van como multipart/related
+        # de la parte HTML, así Gmail/Outlook las muestran sin bloquearlas.
+        if imagenes_inline:
+            parte_html = msg.get_payload()[-1]
+            for cid, ruta_img in imagenes_inline:
+                if not ruta_img or not os.path.exists(ruta_img):
+                    continue
+                with open(ruta_img, "rb") as f:
+                    parte_html.add_related(f.read(), maintype="image",
+                                           subtype="png", cid=f"<{cid}>")
 
     with open(ruta_pdf, "rb") as f:
         datos = f.read()

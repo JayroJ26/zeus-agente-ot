@@ -22,6 +22,53 @@ EMPRESA = {
     "contacto": "servicio@mantenimiento.hn  ·  +504 0000-0000",
 }
 
+# --- Recursos visuales (los genera tools/generar_assets.py en assets/) --------
+_ASSETS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
+_LOGO = os.path.join(_ASSETS, "logo.png")
+# tipo_equipo() -> archivo de la ilustración correspondiente
+_IMG_EQUIPO = {
+    "Motor": "equipo_motor.png",
+    "Generador eléctrico": "equipo_generador.png",
+    "Transformador": "equipo_transformador.png",
+}
+# Content-IDs con que se referencian las imágenes embebidas en el correo
+CID_LOGO = "logo_empresa"
+CID_EQUIPO = "img_equipo"
+
+
+def _ruta_logo():
+    """Ruta del logo si existe (None si aún no se han generado los assets)."""
+    return _LOGO if os.path.exists(_LOGO) else None
+
+
+def ruta_imagen_equipo(ot):
+    """Ruta de la ilustración del tipo de equipo de la OT (None si no hay)."""
+    nombre = _IMG_EQUIPO.get(ot.tipo_equipo())
+    if nombre:
+        ruta = os.path.join(_ASSETS, nombre)
+        if os.path.exists(ruta):
+            return ruta
+    return None
+
+
+def _png_wh(ruta):
+    """(ancho, alto) en px de un PNG leyendo el chunk IHDR (sin depender de PIL)."""
+    import struct
+    with open(ruta, "rb") as f:
+        cab = f.read(24)
+    return struct.unpack(">II", cab[16:24])
+
+
+def imagenes_inline_correo(ot):
+    """Lista [(cid, ruta), ...] de imágenes a embeber en el correo (logo + equipo).
+    Solo incluye las que existan; se pasa tal cual a correo.enviar_ot."""
+    pares = []
+    if _ruta_logo():
+        pares.append((CID_LOGO, _ruta_logo()))
+    if ruta_imagen_equipo(ot):
+        pares.append((CID_EQUIPO, ruta_imagen_equipo(ot)))
+    return pares
+
 # --- Paletas de color --------------------------------------------------------
 _COLOR_PRIORIDAD = {
     "crítica": "#c0392b",
@@ -138,20 +185,21 @@ def _fila_resumen(etiqueta, valor):
     """Renglón del cuadro-resumen del correo (etiqueta a la izquierda, valor a la derecha)."""
     val = html.escape(str(valor)) if valor not in (None, "", []) else "—"
     return (f"<tr>"
-            f"<td style='padding:9px 14px;width:38%;background:#f5f8fb;font-weight:bold;"
+            f"<td width='185' style='padding:9px 14px;width:185px;background:#f5f8fb;font-weight:bold;"
             f"color:#33475b;border:1px solid #e3e8ee;font-size:13px;vertical-align:top;'>{etiqueta}</td>"
             f"<td style='padding:9px 14px;color:#1a2b3c;border:1px solid #e3e8ee;"
-            f"font-size:13px;'>{val}</td>"
+            f"font-size:13px;vertical-align:top;'>{val}</td>"
             f"</tr>")
 
 
 def cuerpo_correo(ot, estado=None):
-    """Cuerpo HTML del correo: un CUADRO PROFESIONAL con la información principal
-    de la OT (no el documento completo — ese va adjunto en PDF).
+    """Cuerpo HTML del correo: MEMBRETE (logo + empresa) + CUADRO PROFESIONAL con
+    la información principal de la OT (el documento completo va adjunto en PDF).
 
-    Pensado para clientes de correo: todo con estilos inline y tablas.
-    'estado' permite forzar la etiqueta (ABIERTA / FINALIZADA); si es None usa el
-    estado actual de la OT.
+    Pensado para clientes de correo: todo con estilos inline y tablas. El logo y
+    la ilustración del equipo se referencian por Content-ID (cid:) y los embebe
+    correo.enviar_ot a partir de reporte.imagenes_inline_correo(ot).
+    'estado' fuerza la etiqueta (ABIERTA / FINALIZADA); None usa el estado actual.
     """
     etiqueta_estado = (estado or ot.estado.value).lower()
     fecha = ot.fecha_creacion.strftime("%d/%m/%Y %H:%M")
@@ -172,8 +220,26 @@ def cuerpo_correo(ot, estado=None):
                  f"resumen con la información principal; el documento completo (checklist y "
                  f"firmas) se incluye en el PDF adjunto.")
 
+    # Logo del membrete y foto del equipo (solo si los assets existen).
+    if _ruta_logo():
+        logo_celda = (f"<td style='width:62px;vertical-align:middle;'>"
+                      f"<img src='cid:{CID_LOGO}' width='54' height='54' alt='' "
+                      f"style='display:block;'></td>")
+        pad_ident = "12px"
+    else:
+        logo_celda, pad_ident = "", "0"
+
+    if ruta_imagen_equipo(ot):
+        equipo_celda = (
+            f"<td style='width:152px;vertical-align:top;text-align:right;padding-left:14px;'>"
+            f"<img src='cid:{CID_EQUIPO}' width='140' alt='{html.escape(ot.tipo_equipo())}' "
+            f"style='display:block;border:1px solid #e3e8ee;border-radius:6px;"
+            f"padding:6px;background:#ffffff;'></td>")
+    else:
+        equipo_celda = ""
+
     # Cuadro-resumen con los datos principales.
-    cuadro = "<table style='width:100%;border-collapse:collapse;margin-top:6px;'>"
+    cuadro = "<table style='width:100%;border-collapse:collapse;margin-top:16px;'>"
     cuadro += _fila_resumen("Folio", ot.folio)
     cuadro += _fila_resumen("Cliente", cliente)
     cuadro += _fila_resumen("Planta", ot.planta)
@@ -192,26 +258,39 @@ def cuerpo_correo(ot, estado=None):
 <!DOCTYPE html>
 <html><head><meta charset="utf-8"></head>
 <body style="margin:0;padding:24px;background:#eef1f5;font-family:Arial,Helvetica,sans-serif;color:#1a2b3c;">
-  <table style="max-width:640px;margin:0 auto;width:100%;border-collapse:collapse;
+  <table style="max-width:660px;margin:0 auto;width:100%;border-collapse:collapse;
                 background:#ffffff;box-shadow:0 2px 14px rgba(0,0,0,.12);">
-    <tr><td style="background:#1f3a5f;color:#ffffff;padding:20px 28px;">
-      <div style="font-size:18px;font-weight:bold;letter-spacing:.3px;">{EMPRESA['nombre']}</div>
-      <div style="font-size:12px;color:#c8d6e5;margin-top:2px;">{EMPRESA['eslogan']}</div>
+    <tr><td style="background:#ffffff;padding:18px 26px 12px;border-bottom:3px solid #1f3a5f;">
+      <table style="width:100%;border-collapse:collapse;"><tr>
+        {logo_celda}
+        <td style="vertical-align:middle;padding-left:{pad_ident};">
+          <div style="font-size:17px;font-weight:bold;color:#1f3a5f;letter-spacing:.2px;">{EMPRESA['nombre']}</div>
+          <div style="font-size:11.5px;color:#5f7285;margin-top:2px;">{EMPRESA['eslogan']}</div>
+        </td>
+        <td style="vertical-align:middle;text-align:right;white-space:nowrap;">
+          <div style="font-size:15px;font-weight:bold;color:#1f3a5f;letter-spacing:.5px;">ORDEN DE TRABAJO</div>
+          <div style="font-size:12px;color:#5f7285;margin-top:2px;">N.º {ot.folio}</div>
+        </td>
+      </tr></table>
     </td></tr>
-    <tr><td style="padding:12px 28px;background:#eef3f8;border-bottom:1px solid #d6e0ea;text-align:right;">
+    <tr><td style="padding:10px 26px;background:#eef3f8;border-bottom:1px solid #d6e0ea;text-align:right;">
       {badge_prioridad}&nbsp;&nbsp;{badge_estado}
     </td></tr>
-    <tr><td style="padding:22px 28px;">
-      <div style="font-size:16px;font-weight:bold;color:#1f3a5f;margin-bottom:10px;">
-        Orden de trabajo — {cliente}</div>
-      <div style="font-size:13.5px;line-height:1.55;color:#33475b;">{intro}</div>
+    <tr><td style="padding:20px 26px;">
+      <table style="width:100%;border-collapse:collapse;"><tr>
+        <td style="vertical-align:top;">
+          <div style="font-size:16px;font-weight:bold;color:#1f3a5f;margin-bottom:8px;">Orden de trabajo — {cliente}</div>
+          <div style="font-size:13.5px;line-height:1.55;color:#33475b;">{intro}</div>
+        </td>
+        {equipo_celda}
+      </tr></table>
       {cuadro}
       <div style="margin-top:18px;padding:12px 14px;background:#eef3f8;border-left:4px solid #1f3a5f;
                   font-size:12.5px;color:#33475b;">
         📎 <b>Adjunto:</b> {ot.folio}.pdf — documento completo de la orden de trabajo.
       </div>
     </td></tr>
-    <tr><td style="background:#1f3a5f;color:#c8d6e5;padding:14px 28px;font-size:11.5px;text-align:center;">
+    <tr><td style="background:#1f3a5f;color:#c8d6e5;padding:14px 26px;font-size:11.5px;text-align:center;">
       {EMPRESA['contacto']}<br>
       <span style="color:#90a4bd;">Generado automáticamente por Zeus ⚡ · Agente de mantenimiento industrial</span>
     </td></tr>
@@ -402,20 +481,60 @@ def generar_pdf(ot, ruta):
     pdf.add_page()
     ancho = pdf.epw
 
-    # --- Encabezado corporativo (banda azul, dos líneas) ---
-    pdf.set_fill_color(31, 58, 95)
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_font("ot", "B", 13)
-    pdf.cell(ancho * 0.62, 8, EMPRESA["nombre"], fill=True, new_x=XPos.RIGHT, new_y=YPos.TOP)
-    pdf.set_font("ot", "B", 11)
-    pdf.cell(ancho * 0.38, 8, "ORDEN DE TRABAJO", fill=True, align="R",
-             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-    pdf.set_text_color(200, 214, 229)
+    # --- Membrete: logo + identidad de la empresa | bloque de la OT ----------
+    def _fit(texto, ancho_disp, size_max, size_min=8.0):
+        """Reduce el tamaño de fuente 'B' hasta que el texto quepa en ancho_disp."""
+        s = size_max
+        while s > size_min:
+            pdf.set_font("ot", "B", s)
+            if pdf.get_string_width(texto) <= ancho_disp:
+                break
+            s -= 0.5
+        return s
+
+    y0 = pdf.get_y()
+    bloque_ot = 50.0                       # ancho reservado a la derecha
+    ruta_logo = _ruta_logo()
+    if ruta_logo:
+        pdf.image(ruta_logo, x=pdf.l_margin, y=y0, w=22, h=22)
+        ident_x = pdf.l_margin + 27
+    else:
+        ident_x = pdf.l_margin
+    ident_w = ancho - (ident_x - pdf.l_margin) - bloque_ot - 7   # -7: aire entre nombre y "ORDEN DE TRABAJO"
+
+    # Nombre de la empresa (autoajusta el tamaño para que quepa en una línea)
+    pdf.set_text_color(31, 58, 95)
+    _fit(EMPRESA["nombre"], ident_w, 15)
+    pdf.set_xy(ident_x, y0 + 2)
+    pdf.cell(ident_w, 7, EMPRESA["nombre"], new_x=XPos.LMARGIN, new_y=YPos.TOP)
+    # Eslogan + contacto
+    pdf.set_font("ot", "", 8.5)
+    pdf.set_text_color(95, 114, 133)
+    pdf.set_xy(ident_x, y0 + 9.5)
+    pdf.cell(ident_w, 5, EMPRESA["eslogan"], new_x=XPos.LMARGIN, new_y=YPos.TOP)
     pdf.set_font("ot", "", 8)
-    pdf.cell(ancho * 0.62, 6, EMPRESA["eslogan"], fill=True, new_x=XPos.RIGHT, new_y=YPos.TOP)
-    pdf.set_font("ot", "B", 9)
-    pdf.cell(ancho * 0.38, 6, f"N.º {ot.folio}", fill=True, align="R",
-             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.set_text_color(120, 135, 150)
+    pdf.set_xy(ident_x, y0 + 14.5)
+    pdf.cell(ident_w, 5, EMPRESA["contacto"], new_x=XPos.LMARGIN, new_y=YPos.TOP)
+
+    # Bloque "ORDEN DE TRABAJO Nº ..." a la derecha
+    ot_x = pdf.l_margin + ancho - bloque_ot
+    pdf.set_text_color(31, 58, 95)
+    _fit("ORDEN DE TRABAJO", bloque_ot, 13)
+    pdf.set_xy(ot_x, y0 + 2.5)
+    pdf.cell(bloque_ot, 7, "ORDEN DE TRABAJO", align="R", new_x=XPos.LMARGIN, new_y=YPos.TOP)
+    pdf.set_font("ot", "B", 11)
+    pdf.set_text_color(95, 114, 133)
+    pdf.set_xy(ot_x, y0 + 10)
+    pdf.cell(bloque_ot, 6, f"N.º {ot.folio}", align="R", new_x=XPos.LMARGIN, new_y=YPos.TOP)
+
+    # Filete corporativo bajo el membrete
+    yf = y0 + 23.5
+    pdf.set_draw_color(31, 58, 95)
+    pdf.set_line_width(0.9)
+    pdf.line(pdf.l_margin, yf, pdf.l_margin + ancho, yf)
+    pdf.set_line_width(0.2)
+    pdf.set_y(yf + 2.5)
 
     # --- Sub-banda: fecha + prioridad + estado ---
     fecha = ot.fecha_creacion.strftime("%d/%m/%Y %H:%M")
@@ -454,7 +573,20 @@ def generar_pdf(ot, ruta):
     if getattr(ot.equipo, "clase_aislamiento", ""):
         filas_equipo.append(("Clase de aislamiento", ot.equipo.clase_aislamiento))
     filas_equipo += [("Área", ot.equipo.area), ("Criticidad", ot.equipo.criticidad)]
-    _pdf_datos(pdf, filas_equipo, ancho)
+    ruta_eq = ruta_imagen_equipo(ot)
+    if ruta_eq:
+        # Ilustración del equipo a la derecha; la tabla de datos a la izquierda.
+        w_img = ancho * 0.27
+        aw, ah = _png_wh(ruta_eq)
+        h_img = w_img * ah / aw
+        x_img = pdf.l_margin + ancho - w_img
+        y_img = pdf.get_y() + 1.5
+        pdf.image(ruta_eq, x=x_img, y=y_img, w=w_img)
+        _pdf_datos(pdf, filas_equipo, ancho * 0.70)
+        if pdf.get_y() < y_img + h_img + 2:
+            pdf.set_y(y_img + h_img + 2)
+    else:
+        _pdf_datos(pdf, filas_equipo, ancho)
 
     _pdf_barra(pdf, "Falla y diagnóstico", ancho)
     _pdf_datos(pdf, [

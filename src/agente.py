@@ -59,6 +59,7 @@ def _enviar_correo(ot, ruta_pdf, estado):
             asunto=f"[{cliente}] Orden de trabajo {ot.folio} - {estado}",
             cuerpo_html=reporte.cuerpo_correo(ot, estado),
             cuerpo_texto=cuerpo_texto,
+            imagenes_inline=reporte.imagenes_inline_correo(ot),
         )
         print(f"[correo] OT {ot.folio} ({estado}) enviada a {destino}")
         return destino
